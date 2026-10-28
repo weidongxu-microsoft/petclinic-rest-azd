@@ -15,10 +15,9 @@ azd init -t weidongxu-microsoft/petclinic-rest-azd
 azd up
 ```
 
-Choose an environment, subscription, location, and a unique API password when
-prompted. Use 16-72 ASCII characters; BCrypt accepts at most 72 UTF-8 bytes.
-The API username is `petclinic`. Database credentials are generated automatically
-and reused from the local azd environment on subsequent provisions.
+Choose an environment, subscription, and location when prompted. Database
+credentials are generated automatically and reused from the local azd environment
+on subsequent provisions. There is no API password prompt.
 
 The deploying identity needs resource creation permissions and permission to
 create role assignments, such as Contributor plus Role Based Access Control
@@ -32,17 +31,16 @@ or role-management permissions. Existing data is not reseeded on reprovision.
 
 ## Call the API
 
-Use the HTTPS endpoint printed by azd. This command prompts for your API password
-instead of including it in shell history:
+Use the HTTPS endpoint printed by azd:
 
 ```sh
-curl --user petclinic "https://<app-host>/petclinic/api/vets"
+curl "https://<app-host>/petclinic/api/vets"
 ```
 
-Missing or incorrect credentials return `401`. All application endpoints,
-including actuator health, require authentication; platform probes use TCP.
-The upstream sample administrator is disabled. Local upstream profiles retain
-their original behavior; Azure runs `postgres,spring-data-jpa,azure`.
+The API is public and unauthenticated, preserving upstream's default behavior.
+Do not use it for sensitive data. Azure runs the existing `postgres,spring-data-jpa`
+profiles. Deployment-only settings in `deployment/spring-configuration.json`
+are injected using `SPRING_APPLICATION_JSON`; no application files are modified.
 
 ## Security and boundaries
 
@@ -51,11 +49,9 @@ their original behavior; Azure runs `postgres,spring-data-jpa,azure`.
 - PostgreSQL and Key Vault deny other network clients, allowing only the app's
   reported outbound IPs. There is no "allow all Azure services" firewall rule.
 - Managed identities pull images and read individually scoped Key Vault secrets.
-  The app cannot read the database administrator or API password secrets.
-- The API password is stored in Key Vault and used by initialization to create a
-  BCrypt hash in Petclinic's existing users table. No new Java authentication code.
+  The app cannot read the database administrator secret.
 - The application container runs as a non-root user. Swagger and the H2 console
-  are disabled in the Azure profile.
+  are disabled by deployment configuration.
 - Secure deployment parameters remain in azd's local environment configuration.
   Do not commit `.azure/` or publish its contents.
 
@@ -88,6 +84,6 @@ docker build --tag petclinic-rest:test .
 pwsh -File tests/Test-DatabaseInitialization.ps1 -ApplicationImage petclinic-rest:test
 ```
 
-Application source is pinned to upstream commit
+`src/` and `pom.xml` are unchanged from upstream commit
 [`afc8fc1`](https://github.com/spring-petclinic/spring-petclinic-rest/tree/afc8fc1d3b8ec8de69414482b3bd70a1da78cb95).
 See [UPSTREAM.md](UPSTREAM.md), [NOTICE](NOTICE), and [LICENSE.txt](LICENSE.txt).

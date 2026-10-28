@@ -3,8 +3,6 @@ param location string
 param administratorPassword string
 @secure()
 param databasePassword string
-@secure()
-param apiPassword string
 param applicationPrincipalId string
 param initializerPrincipalId string
 @minLength(1)
@@ -41,12 +39,6 @@ resource databaseSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
   properties: { value: databasePassword }
 }
 
-resource apiSecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
-  parent: vault
-  name: 'api-password'
-  properties: { value: apiPassword }
-}
-
 var secretReaderRole = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   '4633458b-17de-408a-b874-0445c86b69e6'
@@ -57,16 +49,6 @@ resource applicationDatabaseAccess 'Microsoft.Authorization/roleAssignments@2022
   name: guid(databaseSecret.id, applicationPrincipalId, secretReaderRole)
   properties: {
     principalId: applicationPrincipalId
-    principalType: 'ServicePrincipal'
-    roleDefinitionId: secretReaderRole
-  }
-}
-
-resource initializerApiAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: apiSecret
-  name: guid(apiSecret.id, initializerPrincipalId, secretReaderRole)
-  properties: {
-    principalId: initializerPrincipalId
     principalType: 'ServicePrincipal'
     roleDefinitionId: secretReaderRole
   }

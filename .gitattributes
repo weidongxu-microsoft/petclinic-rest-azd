@@ -1,2 +1,5 @@
 * text=auto eol=lf
 *.cmd text eol=crlf
+# Preserve upstream application bytes.
+src/** -text
+pom.xml -text

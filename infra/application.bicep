@@ -42,7 +42,11 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           image: appImage
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
-            { name: 'SPRING_PROFILES_ACTIVE', value: 'postgres,spring-data-jpa,azure' }
+            { name: 'SPRING_PROFILES_ACTIVE', value: 'postgres,spring-data-jpa' }
+            {
+              name: 'SPRING_APPLICATION_JSON'
+              value: string(loadJsonContent('../deployment/spring-configuration.json'))
+            }
             {
               name: 'SPRING_DATASOURCE_URL'
               value: 'jdbc:postgresql://${databaseHost}:5432/petclinic?sslmode=verify-full&sslfactory=org.postgresql.ssl.DefaultJavaSSLFactory'

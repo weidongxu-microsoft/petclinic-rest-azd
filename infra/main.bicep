@@ -23,12 +23,6 @@ param databaseAdministratorPassword string
 })
 param databasePassword string
 
-@secure()
-@minLength(16)
-@maxLength(72)
-@description('Choose an API password (16-72 ASCII characters) for HTTP Basic user petclinic. Do not reuse another password.')
-param apiPassword string
-
 var serviceName = 'spring-petclinic-rest-app'
 
 resource group 'Microsoft.Resources/resourceGroups@2024-03-01' = {
@@ -71,7 +65,6 @@ module secrets 'secrets.bicep' = {
     location: location
     administratorPassword: databaseAdministratorPassword
     databasePassword: databasePassword
-    apiPassword: apiPassword
     applicationPrincipalId: hosting.outputs.applicationPrincipalId
     initializerPrincipalId: hosting.outputs.initializerPrincipalId
     outboundIps: bootstrap.outputs.outboundIps

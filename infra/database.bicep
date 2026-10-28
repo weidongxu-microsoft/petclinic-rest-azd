@@ -32,12 +32,6 @@ resource requireTls 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@20
   properties: { value: 'on', source: 'user-override' }
 }
 
-resource extensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2024-08-01' = {
-  parent: server
-  name: 'azure.extensions'
-  properties: { value: 'pgcrypto', source: 'user-override' }
-}
-
 resource firewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = [
   for ip in union(outboundIps, []): {
     parent: server
