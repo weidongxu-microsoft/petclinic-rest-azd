@@ -1,0 +1,32 @@
+target/*
+.azure/
+.env
+.env.*
+infra/*.json.tmp
+infra/main.json
+infra/application.json
+.settings/*
+.classpath
+.project
+.idea
+*.iml
+/target
+
+generated/
+
+# Easier branch switching
+springboot-petclinic-client/
+springboot-petclinic-server/
+
+# jenv local settings
+.java-version
+
+# Mac OS X indexing
+.DS_Store
+
+# asdf generated files
+.tool-versions
+.factorypath
+
+# newman reports
+./src/test/postman/reports/
