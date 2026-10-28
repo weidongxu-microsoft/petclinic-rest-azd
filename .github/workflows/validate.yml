@@ -27,4 +27,6 @@ jobs:
         run: docker build --tag petclinic-rest:test .
       - name: Validate database and packaged application
         shell: pwsh
-        run: ./tests/Test-DatabaseInitialization.ps1 -ApplicationImage petclinic-rest:test
+        run: |
+          ./tests/Test-DatabaseInitialization.ps1 -DatabaseEngine postgresql -ApplicationImage petclinic-rest:test
+          ./tests/Test-DatabaseInitialization.ps1 -DatabaseEngine mysql -ApplicationImage petclinic-rest:test

@@ -4,10 +4,16 @@ param environmentId string
 param identityId string
 param registryEndpoint string
 param databaseHost string
+@allowed(['postgresql', 'mysql'])
+param databaseEngine string
 param vaultUri string
 param appImage string
 
 var placeholder = appImage == 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
+var profile = databaseEngine == 'postgresql' ? 'postgres' : 'mysql'
+var jdbcUrl = databaseEngine == 'postgresql'
+  ? 'jdbc:postgresql://${databaseHost}:5432/petclinic?sslmode=verify-full&sslfactory=org.postgresql.ssl.DefaultJavaSSLFactory'
+  : 'jdbc:mysql://${databaseHost}:3306/petclinic?sslMode=VERIFY_IDENTITY&allowPublicKeyRetrieval=false'
 
 resource app 'Microsoft.App/containerApps@2024-03-01' = {
   name: serviceName
@@ -42,14 +48,14 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           image: appImage
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
-            { name: 'SPRING_PROFILES_ACTIVE', value: 'postgres,spring-data-jpa' }
+            { name: 'SPRING_PROFILES_ACTIVE', value: '${profile},spring-data-jpa' }
             {
               name: 'SPRING_APPLICATION_JSON'
               value: string(loadJsonContent('../deployment/spring-configuration.json'))
             }
             {
               name: 'SPRING_DATASOURCE_URL'
-              value: 'jdbc:postgresql://${databaseHost}:5432/petclinic?sslmode=verify-full&sslfactory=org.postgresql.ssl.DefaultJavaSSLFactory'
+              value: jdbcUrl
             }
             { name: 'SPRING_DATASOURCE_USERNAME', value: 'petclinic' }
             { name: 'SPRING_DATASOURCE_PASSWORD', secretRef: 'database-password' }

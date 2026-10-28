@@ -2,39 +2,31 @@ param location string
 param environmentId string
 param identityId string
 param databaseHost string
+@allowed(['postgresql', 'mysql'])
+param databaseEngine string
 param vaultUri string
 
-var script = '''
-set -eu
-psql -X --set=ON_ERROR_STOP=1 --dbname=postgres <<'SQL'
-SELECT pg_advisory_lock(73642101);
-\getenv application_password APPLICATION_PASSWORD
-SELECT 'CREATE ROLE petclinic LOGIN'
-WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'petclinic') \gexec
-ALTER ROLE petclinic PASSWORD :'application_password';
-REVOKE ALL ON DATABASE petclinic FROM PUBLIC;
-GRANT CONNECT ON DATABASE petclinic TO petclinic;
-SQL
-psql -X --set=ON_ERROR_STOP=1 --single-transaction --dbname=petclinic <<'SQL'
-SELECT pg_advisory_xact_lock(73642102);
-CREATE TABLE IF NOT EXISTS azd_template_migrations (version integer PRIMARY KEY);
-SELECT NOT EXISTS (SELECT FROM azd_template_migrations WHERE version = 1) AS initialize \gset
-\if :initialize
-__SCHEMA__
-__DATA__
-INSERT INTO azd_template_migrations VALUES (1);
-\endif
-REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-GRANT USAGE ON SCHEMA public TO petclinic;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO petclinic;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO petclinic;
-REVOKE ALL ON azd_template_migrations FROM petclinic;
-SQL
-'''
+var images = {
+  postgresql: 'postgres:16-alpine'
+  mysql: 'mysql:8.4'
+}
+var certificates = {
+  postgresql: '/etc/ssl/certs/ca-certificates.crt'
+  mysql: '/etc/pki/tls/certs/ca-bundle.crt'
+}
+var script = databaseEngine == 'postgresql'
+  ? loadTextContent('scripts/initialize-postgresql.sh')
+  : loadTextContent('scripts/initialize-mysql.sh')
+var schema = databaseEngine == 'postgresql'
+  ? loadTextContent('../src/main/resources/db/postgres/schema.sql')
+  : loadTextContent('../src/main/resources/db/mysql/schema.sql')
+var data = databaseEngine == 'postgresql'
+  ? loadTextContent('../src/main/resources/db/postgres/data.sql')
+  : loadTextContent('../src/main/resources/db/mysql/data.sql')
 var initialization = replace(
-  replace(script, '__SCHEMA__', loadTextContent('../src/main/resources/db/postgres/schema.sql')),
-  '__DATA__',
-  loadTextContent('../src/main/resources/db/postgres/data.sql')
+  replace(replace(script, '__SCHEMA__', schema), '__DATA__', data),
+  '\r\n',
+  '\n'
 )
 
 resource job 'Microsoft.App/jobs@2024-03-01' = {
@@ -64,16 +56,23 @@ resource job 'Microsoft.App/jobs@2024-03-01' = {
       containers: [
         {
           name: 'initialize'
-          image: 'postgres:16-alpine'
+          image: images[databaseEngine]
           command: ['/bin/sh', '-ec', initialization]
           resources: { cpu: json('0.5'), memory: '1Gi' }
-          env: [
+          env: databaseEngine == 'postgresql' ? [
             { name: 'PGHOST', value: databaseHost }
             { name: 'PGUSER', value: 'azdadmin' }
             { name: 'PGPASSWORD', secretRef: 'administrator-password' }
             { name: 'APPLICATION_PASSWORD', secretRef: 'database-password' }
             { name: 'PGSSLMODE', value: 'verify-full' }
-            { name: 'PGSSLROOTCERT', value: '/etc/ssl/certs/ca-certificates.crt' }
+            { name: 'PGSSLROOTCERT', value: certificates[databaseEngine] }
+          ] : [
+            { name: 'MYSQL_HOST', value: databaseHost }
+            { name: 'MYSQL_USER', value: 'azdadmin' }
+            { name: 'MYSQL_PWD', secretRef: 'administrator-password' }
+            { name: 'APPLICATION_PASSWORD', secretRef: 'database-password' }
+            { name: 'MYSQL_SSL_MODE', value: 'VERIFY_IDENTITY' }
+            { name: 'MYSQL_SSL_CA', value: certificates[databaseEngine] }
           ]
         }
       ]

@@ -1,7 +1,7 @@
 # Petclinic REST on Azure
 
 A standalone azd template for Spring Petclinic REST on Azure Container Apps,
-PostgreSQL Flexible Server, and Key Vault. No azd extension is required.
+PostgreSQL or MySQL Flexible Server, and Key Vault. No azd extension is required.
 
 ## Deploy
 
@@ -15,8 +15,24 @@ azd init -t weidongxu-microsoft/petclinic-rest-azd
 azd up
 ```
 
-Choose an environment, subscription, and location when prompted. Database
-credentials are generated automatically and reused from the local azd environment
+Choose an environment, subscription, location, database engine, and database size.
+PostgreSQL and `small` are the initial selections.
+
+| Choice | Small | Larger |
+|---|---|---|
+| Database compute | B1ms: 1 vCore, 2 GiB RAM | B2s: 2 vCores, 4 GiB RAM |
+| Database storage | 32 GiB | 32 GiB |
+| Cost | Recommended for this demo | Higher compute cost; not a production tier |
+
+Versions are fixed to PostgreSQL 16 and MySQL 8.4 LTS. Regional SKU availability and
+subscription quota still apply. Use a new azd environment to change engines:
+this template does not migrate data or remove the previous engine's resources.
+
+For automation, set `DATABASE_ENGINE` (`postgresql` or `mysql`) and `DATABASE_SIZE`
+(`small` or `larger`) with `azd env set` before provisioning. Without explicit
+values, `--no-prompt` selects PostgreSQL and small; saved selections are reused.
+
+Database credentials are generated automatically and reused from the local azd environment
 on subsequent provisions. There is no API password prompt.
 
 The deploying identity needs resource creation permissions and permission to
@@ -38,8 +54,8 @@ curl "https://<app-host>/petclinic/api/vets"
 ```
 
 The API is public and unauthenticated, preserving upstream's default behavior.
-Do not use it for sensitive data. Azure runs the existing `postgres,spring-data-jpa`
-profiles. Deployment-only settings in `deployment/spring-configuration.json`
+Do not use it for sensitive data. Azure runs the existing `postgres` or `mysql`
+profile with `spring-data-jpa`. Deployment-only settings in `deployment/spring-configuration.json`
 are injected using `SPRING_APPLICATION_JSON`; no application files are modified.
 Upstream returns HTTP `500` for missing routes, including disabled Swagger and H2
 routes, rather than `404`.
@@ -47,8 +63,8 @@ routes, rather than `404`.
 ## Security and boundaries
 
 - HTTPS-only ingress; the bootstrap image has no public ingress.
-- PostgreSQL requires TLS; the app validates the server certificate and hostname.
-- PostgreSQL and Key Vault deny other network clients, allowing only the app's
+- Both databases require TLS; the app validates the server certificate and hostname.
+- The database and Key Vault deny other network clients, allowing only the app's
   reported outbound IPs. There is no "allow all Azure services" firewall rule.
 - Managed identities pull images and read individually scoped Key Vault secrets.
   The app cannot read the database administrator secret.
@@ -74,7 +90,7 @@ azd down --purge
 ```
 
 This permanently removes the template's resources and purges the vault.
-Appropriate purge permission is required. PostgreSQL, the app, registry, logs,
+Appropriate purge permission is required. The database, app, registry, logs,
 Key Vault operations, and initialization job executions incur Azure charges.
 
 ## Local checks and upstream source
@@ -84,6 +100,7 @@ mvn --batch-mode --no-transfer-progress verify
 az bicep build --file infra/main.bicep
 docker build --tag petclinic-rest:test .
 pwsh -File tests/Test-DatabaseInitialization.ps1 -ApplicationImage petclinic-rest:test
+pwsh -File tests/Test-DatabaseInitialization.ps1 -DatabaseEngine mysql -ApplicationImage petclinic-rest:test
 ```
 
 `src/` and `pom.xml` are unchanged from upstream commit

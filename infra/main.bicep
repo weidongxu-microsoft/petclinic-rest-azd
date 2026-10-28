@@ -5,6 +5,14 @@ targetScope = 'subscription'
 param environmentName string
 param location string
 
+@description('Database engine. PostgreSQL is the recommended demo choice; use a new environment to change engines.')
+@allowed(['postgresql', 'mysql'])
+param databaseEngine string
+
+@description('Database size: small = 1 vCore / 2 GiB; larger = 2 vCores / 4 GiB and higher cost. Both use 32 GiB storage.')
+@allowed(['small', 'larger'])
+param databaseSize string
+
 @secure()
 @metadata({
   azd: {
@@ -53,6 +61,8 @@ module database 'database.bicep' = {
   scope: group
   params: {
     location: location
+    engine: databaseEngine
+    size: databaseSize
     administratorPassword: databaseAdministratorPassword
     outboundIps: bootstrap.outputs.outboundIps
   }
@@ -79,6 +89,7 @@ module initializer 'database-init.bicep' = {
     environmentId: hosting.outputs.environmentId
     identityId: hosting.outputs.initializerIdentityId
     databaseHost: database.outputs.host
+    databaseEngine: databaseEngine
     vaultUri: secrets.outputs.vaultUri
   }
 }
@@ -93,6 +104,7 @@ module application 'application.bicep' = {
     identityId: hosting.outputs.applicationIdentityId
     registryEndpoint: hosting.outputs.registryEndpoint
     databaseHost: database.outputs.host
+    databaseEngine: databaseEngine
     vaultUri: secrets.outputs.vaultUri
     appImage: bootstrap.outputs.image
   }
@@ -103,6 +115,8 @@ output AZURE_CONTAINER_REGISTRY_ENDPOINT string = hosting.outputs.registryEndpoi
 output CONTAINER_APP_ENVIRONMENT_ID string = hosting.outputs.environmentId
 output APPLICATION_IDENTITY_ID string = hosting.outputs.applicationIdentityId
 output DATABASE_HOST string = database.outputs.host
+output DATABASE_ENGINE string = databaseEngine
+output DATABASE_SIZE string = databaseSize
 output DATABASE_INIT_JOB_NAME string = initializer.outputs.name
 output KEY_VAULT_NAME string = secrets.outputs.vaultName
 output KEY_VAULT_URI string = secrets.outputs.vaultUri

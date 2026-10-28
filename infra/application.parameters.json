@@ -7,6 +7,7 @@
     "identityId": { "value": "${APPLICATION_IDENTITY_ID}" },
     "registryEndpoint": { "value": "${AZURE_CONTAINER_REGISTRY_ENDPOINT}" },
     "databaseHost": { "value": "${DATABASE_HOST}" },
+    "databaseEngine": { "value": "${DATABASE_ENGINE}" },
     "vaultUri": { "value": "${KEY_VAULT_URI}" },
     "appImage": { "value": "${SERVICE_SPRING_PETCLINIC_REST_APP_IMAGE_NAME}" }
   }
