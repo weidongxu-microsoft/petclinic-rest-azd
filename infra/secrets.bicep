@@ -17,7 +17,7 @@ resource vault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     enableRbacAuthorization: true
     enableSoftDelete: true
     softDeleteRetentionInDays: 7
-    enablePurgeProtection: false
+    // Omit purge protection to keep its disabled default; the API rejects explicit false.
     publicNetworkAccess: 'Enabled'
     networkAcls: {
       defaultAction: 'Deny'
