@@ -14,6 +14,11 @@ function Invoke-Docker {
 
 $root = Split-Path $PSScriptRoot -Parent
 $definition = Get-Content -LiteralPath (Join-Path $root 'infra\database-init.bicep') -Raw
+$image = [regex]::Match($definition, "(?m)^\s+image: '([^']+)'")
+$certificate = [regex]::Match($definition, "name: 'PGSSLROOTCERT', value: '([^']+)'")
+if (!$image.Success -or !$certificate.Success) {
+    throw 'Database initialization image or TLS root certificate configuration was not found.'
+}
 $match = [regex]::Match($definition, "(?s)var script = '''\r?\n(.*?)\r?\n'''")
 if (!$match.Success) {
     throw 'Database initialization script was not found.'
@@ -33,7 +38,11 @@ try {
     $networkCreated = $true
     $container = Invoke-Docker @('run', '--detach', '--rm', '--env', 'POSTGRES_PASSWORD',
         '--network', $network, '--network-alias', 'database',
-        '--env', 'POSTGRES_USER=azdadmin', '--env', 'POSTGRES_DB=petclinic', 'postgres:16-bookworm')
+        '--env', 'POSTGRES_USER=azdadmin', '--env', 'POSTGRES_DB=petclinic', $image.Groups[1].Value)
+    & docker exec $container test -s $certificate.Groups[1].Value
+    if ($LASTEXITCODE -ne 0) {
+        throw 'The database initialization image is missing its configured TLS root certificate bundle.'
+    }
     $ready = $false
     for ($attempt = 0; $attempt -lt 60; $attempt++) {
         & docker exec $container pg_isready -h 127.0.0.1 -U azdadmin -d petclinic *> $null

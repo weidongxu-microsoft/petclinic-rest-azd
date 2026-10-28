@@ -64,7 +64,7 @@ resource job 'Microsoft.App/jobs@2024-03-01' = {
       containers: [
         {
           name: 'initialize'
-          image: 'postgres:16-bookworm'
+          image: 'postgres:16-alpine'
           command: ['/bin/sh', '-ec', initialization]
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
