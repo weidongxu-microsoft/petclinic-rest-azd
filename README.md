@@ -41,6 +41,8 @@ The API is public and unauthenticated, preserving upstream's default behavior.
 Do not use it for sensitive data. Azure runs the existing `postgres,spring-data-jpa`
 profiles. Deployment-only settings in `deployment/spring-configuration.json`
 are injected using `SPRING_APPLICATION_JSON`; no application files are modified.
+Upstream returns HTTP `500` for missing routes, including disabled Swagger and H2
+routes, rather than `404`.
 
 ## Security and boundaries
 

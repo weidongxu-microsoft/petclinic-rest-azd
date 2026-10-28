@@ -124,7 +124,14 @@ AND NOT has_table_privilege('petclinic', 'azd_template_migrations', 'DELETE');
             throw 'The packaged application could not read the initialized database without API authentication.'
         }
         $response = Invoke-WebRequest -Uri ($url -replace '/api/vets$', '/actuator/health') -SkipHttpErrorCheck
-        if ($response.StatusCode -ne 200 -or $response.Content -match '"components"|"details"') {
+        $healthContent = if ($response.Content -is [byte[]]) {
+            [Text.Encoding]::UTF8.GetString($response.Content)
+        } else {
+            [string]$response.Content
+        }
+        $health = $healthContent | ConvertFrom-Json
+        if ($response.StatusCode -ne 200 -or $health.status -ne 'UP' -or
+            $healthContent -match '"components"|"details"') {
             throw 'The health endpoint must be available without exposing component details.'
         }
         $user = Invoke-Docker @('inspect', '--format', '{{.Config.User}}', $application)
