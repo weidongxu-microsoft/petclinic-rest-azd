@@ -148,7 +148,7 @@ function az {
         $type = if ($state.Failure -eq 'service-principal') { 'servicePrincipal' } else { 'user' }
         return @{
             tenantId = $tenant
-            user = @{ name = 'admin@example.invalid'; type = $type }
+            user = @{ name = 'cached-alias@example.invalid'; type = $type }
         } | ConvertTo-Json
     }
     Assert-True (($args[0..1] -join ' ') -eq 'account get-access-token') 'Preflight must not require Graph.'
@@ -158,6 +158,11 @@ function az {
     $claims = @{
         oid = if ($state.Failure -eq 'missing-oid') { '' } else { '00000000-0000-0000-0000-000000000003' }
         tid = if ($state.Failure -eq 'wrong-tenant') { '00000000-0000-0000-0000-000000000099' } else { $tenant }
+        upn = if ($state.Failure -in @('preferred-name', 'unique-name', 'missing-name')) { '' } else {
+            'admin@example.invalid'
+        }
+        preferred_username = if ($state.Failure -eq 'preferred-name') { 'admin@example.invalid' } else { '' }
+        unique_name = if ($state.Failure -eq 'unique-name') { 'admin@example.invalid' } else { '' }
     } | ConvertTo-Json -Compress
     $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($claims)).
         TrimEnd('=').Replace('+', '-').Replace('/', '_')
@@ -173,7 +178,8 @@ $originalSubscription = $env:AZURE_SUBSCRIPTION_ID
 $tenant = '00000000-0000-0000-0000-000000000004'
 try {
     foreach ($scenario in @('success', 'docker', 'user', 'subscription', 'service-principal',
-        'arm-token', 'malformed-token', 'missing-oid', 'wrong-tenant')) {
+        'arm-token', 'malformed-token', 'missing-oid', 'wrong-tenant',
+        'preferred-name', 'unique-name', 'missing-name')) {
         $state = @{ Failure = $scenario; Values = @{} }
         $env:AZURE_SUBSCRIPTION_ID = if ($scenario -eq 'subscription') { '' } else { $subscription }
         $failure = $null
@@ -183,7 +189,7 @@ try {
         } catch { $failure = $_.Exception.Message }
         Assert-True ($output -notmatch 'synthetic-sensitive-token' -and
             $failure -notmatch 'synthetic-sensitive-token') "$scenario disclosed an ARM token."
-        if ($scenario -eq 'success') {
+        if ($scenario -in @('success', 'preferred-name', 'unique-name')) {
             Assert-True ($null -eq $failure -and $state.Values.Count -eq 2) "Preflight failed: $failure"
             Assert-True ($state.Values.DATABASE_ADMIN_NAME -ceq 'admin@example.invalid') 'Wrong administrator name.'
             Assert-True ($state.Values.DATABASE_ADMIN_OBJECT_ID -ceq '00000000-0000-0000-0000-000000000003') `
@@ -195,4 +201,4 @@ try {
 } finally {
     $env:AZURE_SUBSCRIPTION_ID = $originalSubscription
 }
-Write-Host 'Nine administrator-preflight scenarios passed, including ARM-only lookup, tenant validation, and token non-disclosure.'
+Write-Host 'Twelve administrator-preflight scenarios passed, including token-based names, tenant validation, and token non-disclosure.'

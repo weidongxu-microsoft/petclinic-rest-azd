@@ -18,7 +18,7 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Could not read the selected Azure CLI account.'
 }
 $account = ConvertFrom-Json -InputObject ($json -join "`n")
-if ($account.user.type -ne 'user' -or [string]::IsNullOrWhiteSpace($account.user.name)) {
+if ($account.user.type -ne 'user') {
     throw 'Database setup requires an Azure CLI user account, not a service principal.'
 }
 $token = & az account get-access-token --subscription $env:AZURE_SUBSCRIPTION_ID --resource-type arm `
@@ -35,12 +35,21 @@ try {
     if ($id -eq [Guid]::Empty -or [Guid]::Parse($claims.tid) -ne [Guid]::Parse($account.tenantId)) {
         throw 'Invalid principal or tenant.'
     }
+    $administratorName = $null
+    foreach ($name in @('upn', 'preferred_username', 'unique_name')) {
+        $claim = $claims.PSObject.Properties[$name]
+        if ($claim -and ![string]::IsNullOrWhiteSpace([string]$claim.Value)) {
+            $administratorName = [string]$claim.Value
+            break
+        }
+    }
+    if (!$administratorName) { throw 'No user principal name in the ARM token.' }
 } catch {
     throw 'Could not identify the signed-in user in the selected subscription tenant from the ARM token.'
 }
 foreach ($value in @(
     @('DATABASE_ADMIN_OBJECT_ID', $id.ToString()),
-    @('DATABASE_ADMIN_NAME', $account.user.name)
+    @('DATABASE_ADMIN_NAME', $administratorName)
 )) {
     & azd env set @value
     if ($LASTEXITCODE -ne 0) {

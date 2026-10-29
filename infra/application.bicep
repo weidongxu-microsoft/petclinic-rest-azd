@@ -9,7 +9,7 @@ param appImage string
 
 var placeholder = appImage == 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
 var authenticationPlugin = 'com.azure.identity.extensions.jdbc.postgresql.AzurePostgresqlAuthenticationPlugin'
-var tlsOptions = 'sslmode=verify-full&sslfactory=org.postgresql.ssl.DefaultJavaSSLFactory'
+var tlsOptions = 'sslmode=verify-full&sslrootcert=/etc/ssl/certs/ca-certificates.crt'
 var identityOptions = 'authenticationPluginClassName=${authenticationPlugin}&azure.managedIdentityEnabled=true&azure.clientId=${identityClientId}'
 var jdbcUrl = 'jdbc:postgresql://${databaseHost}:5432/petclinic?${tlsOptions}&${identityOptions}'
 
