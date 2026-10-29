@@ -44,8 +44,9 @@ identities, secrets, or permissions.
 
 The deploying identity needs resource creation and role-assignment permissions,
 such as Contributor plus Role Based Access Control Administrator at subscription
-scope. The preprovision hook selects the signed-in Azure CLI user as PostgreSQL
-Entra administrator. Service-principal-only provisioning is not supported.
+scope. Preflight hooks select the signed-in Azure CLI user as PostgreSQL Entra
+administrator before `azd up` resolves infrastructure parameters and before
+standalone `azd provision`. Service-principal-only provisioning is not supported.
 
 After provisioning, the hook reconciles database firewall rules and uses your
 short-lived Azure CLI token to map the app identity to `petclinic_app`. It grants
