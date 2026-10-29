@@ -5,31 +5,14 @@ targetScope = 'subscription'
 param environmentName string
 param location string
 
-@description('Database engine. PostgreSQL is the recommended demo choice; use a new environment to change engines.')
-@allowed(['postgresql', 'mysql'])
-param databaseEngine string
-
 @description('Database size: small = 1 vCore / 2 GiB; larger = 2 vCores / 4 GiB and higher cost. Both use 32 GiB storage.')
 @allowed(['small', 'larger'])
 param databaseSize string
 
-@secure()
-@metadata({
-  azd: {
-    type: 'generate'
-    config: { length: 32, minLower: 1, minUpper: 1, minNumeric: 1, minSpecial: 1 }
-  }
-})
-param databaseAdministratorPassword string
-
-@secure()
-@metadata({
-  azd: {
-    type: 'generate'
-    config: { length: 32, minLower: 1, minUpper: 1, minNumeric: 1, minSpecial: 1 }
-  }
-})
-param databasePassword string
+@minLength(1)
+param databaseAdministratorObjectId string
+@minLength(1)
+param databaseAdministratorName string
 
 var serviceName = 'spring-petclinic-rest-app'
 
@@ -61,36 +44,10 @@ module database 'database.bicep' = {
   scope: group
   params: {
     location: location
-    engine: databaseEngine
     size: databaseSize
-    administratorPassword: databaseAdministratorPassword
+    administratorObjectId: databaseAdministratorObjectId
+    administratorName: databaseAdministratorName
     outboundIps: bootstrap.outputs.outboundIps
-  }
-}
-
-module secrets 'secrets.bicep' = {
-  name: 'secrets'
-  scope: group
-  params: {
-    location: location
-    administratorPassword: databaseAdministratorPassword
-    databasePassword: databasePassword
-    applicationPrincipalId: hosting.outputs.applicationPrincipalId
-    initializerPrincipalId: hosting.outputs.initializerPrincipalId
-    outboundIps: bootstrap.outputs.outboundIps
-  }
-}
-
-module initializer 'database-init.bicep' = {
-  name: 'database-init'
-  scope: group
-  params: {
-    location: location
-    environmentId: hosting.outputs.environmentId
-    identityId: hosting.outputs.initializerIdentityId
-    databaseHost: database.outputs.host
-    databaseEngine: databaseEngine
-    vaultUri: secrets.outputs.vaultUri
   }
 }
 
@@ -102,10 +59,9 @@ module application 'application.bicep' = {
     serviceName: serviceName
     environmentId: hosting.outputs.environmentId
     identityId: hosting.outputs.applicationIdentityId
+    identityClientId: hosting.outputs.applicationClientId
     registryEndpoint: hosting.outputs.registryEndpoint
     databaseHost: database.outputs.host
-    databaseEngine: databaseEngine
-    vaultUri: secrets.outputs.vaultUri
     appImage: bootstrap.outputs.image
   }
 }
@@ -114,10 +70,10 @@ output AZURE_RESOURCE_GROUP string = group.name
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = hosting.outputs.registryEndpoint
 output CONTAINER_APP_ENVIRONMENT_ID string = hosting.outputs.environmentId
 output APPLICATION_IDENTITY_ID string = hosting.outputs.applicationIdentityId
+output APPLICATION_IDENTITY_CLIENT_ID string = hosting.outputs.applicationClientId
+output APPLICATION_PRINCIPAL_ID string = hosting.outputs.applicationPrincipalId
 output DATABASE_HOST string = database.outputs.host
-output DATABASE_ENGINE string = databaseEngine
+output DATABASE_SERVER_ID string = database.outputs.serverId
+output DATABASE_OUTBOUND_IPS string = string(bootstrap.outputs.outboundIps)
 output DATABASE_SIZE string = databaseSize
-output DATABASE_INIT_JOB_NAME string = initializer.outputs.name
-output KEY_VAULT_NAME string = secrets.outputs.vaultName
-output KEY_VAULT_URI string = secrets.outputs.vaultUri
 output SERVICE_SPRING_PETCLINIC_REST_APP_ENDPOINT_URL string = application.outputs.SERVICE_SPRING_PETCLINIC_REST_APP_ENDPOINT_URL

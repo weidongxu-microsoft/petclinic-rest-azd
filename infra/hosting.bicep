@@ -14,11 +14,6 @@ resource applicationIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2
   location: location
 }
 
-resource initializerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: 'id-petclinic-init-${token}'
-  location: location
-}
-
 resource pull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   scope: registry
   name: guid(registry.id, applicationIdentity.id, 'AcrPull')
@@ -59,5 +54,4 @@ output registryEndpoint string = registry.properties.loginServer
 output environmentId string = environment.id
 output applicationIdentityId string = applicationIdentity.id
 output applicationPrincipalId string = applicationIdentity.properties.principalId
-output initializerIdentityId string = initializerIdentity.id
-output initializerPrincipalId string = initializerIdentity.properties.principalId
+output applicationClientId string = applicationIdentity.properties.clientId

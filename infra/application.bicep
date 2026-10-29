@@ -2,18 +2,16 @@ param location string
 param serviceName string = 'spring-petclinic-rest-app'
 param environmentId string
 param identityId string
+param identityClientId string
 param registryEndpoint string
 param databaseHost string
-@allowed(['postgresql', 'mysql'])
-param databaseEngine string
-param vaultUri string
 param appImage string
 
 var placeholder = appImage == 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest'
-var profile = databaseEngine == 'postgresql' ? 'postgres' : 'mysql'
-var jdbcUrl = databaseEngine == 'postgresql'
-  ? 'jdbc:postgresql://${databaseHost}:5432/petclinic?sslmode=verify-full&sslfactory=org.postgresql.ssl.DefaultJavaSSLFactory'
-  : 'jdbc:mysql://${databaseHost}:3306/petclinic?sslMode=VERIFY_IDENTITY&allowPublicKeyRetrieval=false'
+var authenticationPlugin = 'com.azure.identity.extensions.jdbc.postgresql.AzurePostgresqlAuthenticationPlugin'
+var tlsOptions = 'sslmode=verify-full&sslfactory=org.postgresql.ssl.DefaultJavaSSLFactory'
+var identityOptions = 'authenticationPluginClassName=${authenticationPlugin}&azure.managedIdentityEnabled=true&azure.clientId=${identityClientId}'
+var jdbcUrl = 'jdbc:postgresql://${databaseHost}:5432/petclinic?${tlsOptions}&${identityOptions}'
 
 resource app 'Microsoft.App/containerApps@2024-03-01' = {
   name: serviceName
@@ -37,9 +35,6 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
             transport: 'http'
           }
       registries: [{ server: registryEndpoint, identity: identityId }]
-      secrets: [
-        { name: 'database-password', keyVaultUrl: '${vaultUri}secrets/database-password', identity: identityId }
-      ]
     }
     template: {
       containers: [
@@ -48,17 +43,14 @@ resource app 'Microsoft.App/containerApps@2024-03-01' = {
           image: appImage
           resources: { cpu: json('0.5'), memory: '1Gi' }
           env: [
-            { name: 'SPRING_PROFILES_ACTIVE', value: '${profile},spring-data-jpa' }
-            {
-              name: 'SPRING_APPLICATION_JSON'
-              value: string(loadJsonContent('../deployment/spring-configuration.json'))
-            }
+            { name: 'SPRING_PROFILES_ACTIVE', value: 'postgres,spring-data-jpa' }
             {
               name: 'SPRING_DATASOURCE_URL'
               value: jdbcUrl
             }
-            { name: 'SPRING_DATASOURCE_USERNAME', value: 'petclinic' }
-            { name: 'SPRING_DATASOURCE_PASSWORD', secretRef: 'database-password' }
+            { name: 'SPRING_DATASOURCE_USERNAME', value: 'petclinic_app' }
+            { name: 'SPRING_DATASOURCE_PASSWORD', value: '' }
+            { name: 'AZURE_CLIENT_ID', value: identityClientId }
           ]
           probes: placeholder
             ? []

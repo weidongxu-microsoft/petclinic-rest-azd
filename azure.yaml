@@ -17,7 +17,11 @@ services:
       context: .
       platform: linux/amd64
 hooks:
+  preprovision:
+    shell: pwsh
+    run: scripts/Prepare-Database.ps1
+    interactive: false
   postprovision:
     shell: pwsh
-    run: scripts/Initialize-Database.ps1
+    run: scripts/Configure-Database.ps1
     interactive: false

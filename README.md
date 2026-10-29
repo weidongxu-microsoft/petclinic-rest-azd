@@ -1,12 +1,24 @@
 # Petclinic REST on Azure
 
-A standalone azd template for Spring Petclinic REST on Azure Container Apps,
-PostgreSQL or MySQL Flexible Server, and Key Vault. No azd extension is required.
+A standalone azd template for the Spring Petclinic REST API (no web UI) on
+Azure Container Apps with PostgreSQL 16. Managed identity authenticates to the
+database and Container Registry; no database password or Key Vault is needed.
+No azd extension is required.
+
+**Demo only:** the API is public and unauthenticated. The app is a non-admin
+database user, but can create and manage its own tables. Do not use sensitive data.
+
+## Architecture
+
+![Petclinic REST architecture](docs/images/architecture.png)
+
+See the [editable diagram](docs/images/architecture.svg) and
+[gallery submission assets](docs/gallery.md).
 
 ## Deploy
 
 Install [azd](https://aka.ms/azd-install), Azure CLI, Docker, and PowerShell 7.
-Start Docker and sign in using browser authentication:
+Start Docker and sign in to both CLIs with a user account in the target tenant:
 
 ```sh
 az login
@@ -15,94 +27,117 @@ azd init -t weidongxu-microsoft/petclinic-rest-azd
 azd up
 ```
 
-Choose an environment, subscription, location, database engine, and database size.
-PostgreSQL and `small` are the initial selections.
+Choose an environment, subscription, location, and database size.
 
-| Choice | Small | Larger |
+| Size | Compute | Storage |
 |---|---|---|
-| Database compute | B1ms: 1 vCore, 2 GiB RAM | B2s: 2 vCores, 4 GiB RAM |
-| Database storage | 32 GiB | 32 GiB |
-| Cost | Recommended for this demo | Higher compute cost; not a production tier |
+| `small` (default) | B1ms: 1 vCore, 2 GiB RAM | 32 GiB |
+| `larger` | B2s: 2 vCores, 4 GiB RAM | 32 GiB |
 
-Versions are fixed to PostgreSQL 16 and MySQL 8.4 LTS. Regional SKU availability and
-subscription quota still apply. Use a new azd environment to change engines:
-this template does not migrate data or remove the previous engine's resources.
+Both are burstable demo configurations, not production tiers. Regional SKU
+availability and subscription quota apply. For automation, set `DATABASE_SIZE`
+with `azd env set` before provisioning; `--no-prompt` uses small unless saved.
 
-For automation, set `DATABASE_ENGINE` (`postgresql` or `mysql`) and `DATABASE_SIZE`
-(`small` or `larger`) with `azd env set` before provisioning. Without explicit
-values, `--no-prompt` selects PostgreSQL and small; saved selections are reused.
+Use a **fresh environment** when upgrading from a password-based version.
+Reprovisioning does not migrate data or delete retired MySQL, Key Vault, jobs,
+identities, secrets, or permissions.
 
-Database credentials are generated automatically and reused from the local azd environment
-on subsequent provisions. There is no API password prompt.
+The deploying identity needs resource creation and role-assignment permissions,
+such as Contributor plus Role Based Access Control Administrator at subscription
+scope. The preprovision hook selects the signed-in Azure CLI user as PostgreSQL
+Entra administrator. Service-principal-only provisioning is not supported.
 
-The deploying identity needs resource creation permissions and permission to
-create role assignments, such as Contributor plus Role Based Access Control
-Administrator on the deployment scope. The database hook uses your Azure CLI
-login to start and observe a Container Apps job.
+After provisioning, the hook reconciles database firewall rules and uses your
+short-lived Azure CLI token to map the app identity to `petclinic_app`. It grants
+connection and schema creation permissions, not database administration.
+A temporary rule allows only your detected public IPv4 address and is removed
+on success or failure. Docker supplies the PostgreSQL client; no local `psql`
+installation is needed.
 
-Provisioning initializes the database through that isolated job before deploying
-the application. Only the job receives the administrator credential. The app
-uses a separate database login with data-access permissions, not schema creation
-or role-management permissions. Existing data is not reseeded on reprovision.
+Petclinic runs its original schema and seed SQL at startup. Restarting can restore
+deleted sample records. The template changes only database connection and identity
+settings; local profiles and other application defaults are preserved.
 
 ## Call the API
 
-Use the HTTPS endpoint printed by azd:
+Use the app hostname from the HTTPS endpoint printed by azd:
+
+| Endpoint | URL |
+|---|---|
+| Vets API | `https://<app-host>/petclinic/api/vets` |
+| Swagger UI | `https://<app-host>/petclinic/swagger-ui.html` |
+| Health | `https://<app-host>/petclinic/actuator/health` |
 
 ```sh
 curl "https://<app-host>/petclinic/api/vets"
 ```
 
-The API is public and unauthenticated, preserving upstream's default behavior.
-Do not use it for sensitive data. Azure runs the existing `postgres` or `mysql`
-profile with `spring-data-jpa`. Deployment-only settings in `deployment/spring-configuration.json`
-are injected using `SPRING_APPLICATION_JSON`; no application files are modified.
-Upstream returns HTTP `500` for missing routes, including disabled Swagger and H2
-routes, rather than `404`.
+## Run locally
 
-## Security and boundaries
+With JDK 17 installed, run from the project root:
 
-- HTTPS-only ingress; the bootstrap image has no public ingress.
-- Both databases require TLS; the app validates the server certificate and hostname.
-- The database and Key Vault deny other network clients, allowing only the app's
-  reported outbound IPs. There is no "allow all Azure services" firewall rule.
-- Managed identities pull images and read individually scoped Key Vault secrets.
-  The app cannot read the database administrator secret.
-- The application container runs as a non-root user. Swagger and the H2 console
-  are disabled by deployment configuration.
-- Secure deployment parameters remain in azd's local environment configuration.
-  Do not commit `.azure/` or publish its contents.
+```sh
+sh ./mvnw spring-boot:run
+```
 
-This is a demo baseline, not a production reference architecture. No private
-endpoints or fixed-egress NAT gateway are configured. Outbound IPs can change;
-reprovision to refresh allowlists. Shared egress IPs are not workload isolation:
-database authentication and Key Vault RBAC remain required. RBAC propagation can
-delay the first secret resolution; inspect failures before retrying provision.
+On Windows PowerShell, use `.\mvnw.cmd spring-boot:run`.
+The default `h2,spring-data-jpa` profiles use an in-memory database; no Azure
+resources or firewall changes are needed. Data is lost when the process stops.
+Open [Swagger UI](http://localhost:9966/petclinic/swagger-ui.html),
+[the vets API](http://localhost:9966/petclinic/api/vets), or
+[health](http://localhost:9966/petclinic/actuator/health). Stop with Ctrl+C.
 
-Key Vault has mandatory soft delete, seven-day retention, and purge protection
-disabled for disposable testing. Organizational policies may require different
-settings. A deleted vault reserves its globally unique name until purged.
+## Security and troubleshooting
+
+- Ingress is HTTPS-only; the bootstrap image has no public ingress.
+- PostgreSQL password authentication is disabled. The JDBC authentication plugin
+  obtains tokens using the app's user-assigned managed identity.
+- Database connections verify the TLS certificate and hostname.
+- The app owns its tables and has `USAGE, CREATE` on the `public` schema.
+  It is not a read/write-only database role.
+- Firewall rules named `aca-<IPv4-address-with-hyphens>` are template-owned.
+  Reprovisioning removes obsolete rules and preserves unrelated rules, which can
+  grant additional access. Reprovision if app outbound IPs change.
+- No private endpoints or fixed-egress NAT gateway are configured. Shared egress
+  IPs are not workload isolation; database authentication remains required.
+- Do not commit `.azure/` or publish its contents.
+
+If identity bootstrap fails, check Azure CLI tenant/sign-in and TCP 5432
+connectivity. A proxy or VPN can make HTTPS IP discovery differ from database
+egress; the hook does not broaden the firewall to work around that.
+Rerun `azd provision` after correcting the cause.
+If cleanup fails or the hook is forcibly interrupted, remove its
+`petclinic-bootstrap-*` firewall rule from the selected server before retrying.
 
 ## Clean up
 
 ```sh
-azd down --purge
+azd down
 ```
 
-This permanently removes the template's resources and purges the vault.
-Appropriate purge permission is required. The database, app, registry, logs,
-Key Vault operations, and initialization job executions incur Azure charges.
+This deletes the database and application resources, including their data.
+Database, container, registry, and logging usage incur Azure charges.
 
 ## Local checks and upstream source
 
+With JDK 17 and the deployment prerequisites installed:
+
 ```sh
-mvn --batch-mode --no-transfer-progress verify
+sh ./mvnw --batch-mode --no-transfer-progress verify
 az bicep build --file infra/main.bicep
+az bicep build --file infra/application.bicep
+pwsh -File tests/Test-DatabaseFirewall.ps1
+pwsh -File tests/Test-DatabaseIdentity.ps1
 docker build --tag petclinic-rest:test .
-pwsh -File tests/Test-DatabaseInitialization.ps1 -ApplicationImage petclinic-rest:test
-pwsh -File tests/Test-DatabaseInitialization.ps1 -DatabaseEngine mysql -ApplicationImage petclinic-rest:test
+pwsh -File tests/Test-ApplicationDatabase.ps1 -ApplicationImage petclinic-rest:test
 ```
 
-`src/` and `pom.xml` are unchanged from upstream commit
+The database test runs production bootstrap SQL against local Entra-function
+stubs, then checks non-admin application startup and restart. It uses a local
+password fixture, not Azure authentication; a live Azure deployment is needed
+to verify managed identity end-to-end.
+
+`src/` is unchanged from upstream commit
 [`afc8fc1`](https://github.com/spring-petclinic/spring-petclinic-rest/tree/afc8fc1d3b8ec8de69414482b3bd70a1da78cb95).
+`pom.xml` adds `azure-identity-extensions` for passwordless JDBC authentication.
 See [UPSTREAM.md](UPSTREAM.md), [NOTICE](NOTICE), and [LICENSE.txt](LICENSE.txt).

@@ -18,15 +18,19 @@ jobs:
           java-version: '17'
           cache: maven
       - name: Build and test
-        run: mvn --batch-mode --no-transfer-progress verify
+        run: sh ./mvnw --batch-mode --no-transfer-progress verify
       - name: Compile infrastructure
         run: |
           az bicep build --file infra/main.bicep --outfile /tmp/petclinic-main.json
           az bicep build --file infra/application.bicep --outfile /tmp/petclinic-application.json
+      - name: Validate database hooks
+        shell: pwsh
+        run: |
+          ./tests/Test-DatabaseFirewall.ps1
+          ./tests/Test-DatabaseIdentity.ps1
       - name: Build container
         run: docker build --tag petclinic-rest:test .
       - name: Validate database and packaged application
         shell: pwsh
         run: |
-          ./tests/Test-DatabaseInitialization.ps1 -DatabaseEngine postgresql -ApplicationImage petclinic-rest:test
-          ./tests/Test-DatabaseInitialization.ps1 -DatabaseEngine mysql -ApplicationImage petclinic-rest:test
+          ./tests/Test-ApplicationDatabase.ps1 -ApplicationImage petclinic-rest:test

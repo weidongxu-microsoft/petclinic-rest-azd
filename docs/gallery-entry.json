@@ -1,0 +1,14 @@
+{
+  "id": "e1c385c8-026b-48fa-bf05-7b1a6df293c1",
+  "title": "Spring Petclinic REST on Azure Container Apps",
+  "description": "Deploy Spring Petclinic REST to Azure Container Apps with passwordless PostgreSQL. A managed identity pulls the image and connects to the database; Petclinic initializes its own tables.",
+  "preview": "./templates/images/petclinic-rest-azd.png",
+  "author": "weidongxu-microsoft",
+  "authorUrl": "https://github.com/weidongxu-microsoft",
+  "source": "https://github.com/weidongxu-microsoft/petclinic-rest-azd",
+  "tags": ["community"],
+  "languages": ["java"],
+  "frameworks": ["spring"],
+  "azureServices": ["aca", "azuredb-postgreSQL", "loganalytics", "managedidentity"],
+  "IaC": ["bicep"]
+}
