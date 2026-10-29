@@ -110,7 +110,9 @@ function docker {
     $global:LASTEXITCODE = if ($state.Failure -eq 'docker') { 1 } else { 0 }
 }
 function az {
-    Assert-True (($args[0..2] -join ' ') -eq 'ad signed-in-user show') 'Preflight must inspect the signed-in user.'
+    Assert-True (($args[0..2] -join ' ') -eq 'rest --method get') 'Preflight must inspect the signed-in user.'
+    Assert-True ((Get-Argument $args '--url') -ceq
+        'https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName') 'Preflight must request only administrator metadata.'
     Assert-True ((Get-Argument $args '--subscription') -eq $subscription) 'Preflight must use the selected subscription.'
     $global:LASTEXITCODE = if ($state.Failure -eq 'user') { 1 } else { 0 }
     return '{"id":"00000000-0000-0000-0000-000000000003","userPrincipalName":"admin@example.invalid"}'

@@ -13,7 +13,8 @@ foreach ($tool in @('az', 'docker')) {
 if ($LASTEXITCODE -ne 0) {
     throw 'Start Docker before provisioning; the database identity setup uses the PostgreSQL client image.'
 }
-$json = & az ad signed-in-user show --subscription $env:AZURE_SUBSCRIPTION_ID --only-show-errors --output json
+$json = & az rest --method get --url 'https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName' `
+    --subscription $env:AZURE_SUBSCRIPTION_ID --only-show-errors --output json
 if ($LASTEXITCODE -ne 0) {
     throw 'Sign in to Azure CLI with a user account in the selected subscription tenant using az login.'
 }
