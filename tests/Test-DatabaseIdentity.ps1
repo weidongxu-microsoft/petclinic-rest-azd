@@ -15,9 +15,7 @@ function Get-Argument {
 }
 function Invoke-RestMethod {
     param($Uri, $TimeoutSec)
-    $state.IpCalls++
-    Assert-True ($Uri -eq 'https://api.ipify.org' -and $TimeoutSec -eq 15) 'Unexpected IP discovery request.'
-    return $state.Ip
+    throw 'Bootstrap must not depend on HTTPS IP discovery.'
 }
 function az {
     $arguments = @($args)
@@ -31,18 +29,20 @@ function az {
     Assert-True (($arguments[0..2] -join ' ') -eq 'postgres flexible-server firewall-rule') 'Unexpected Azure mutation.'
     Assert-True ((Get-Argument $arguments '--resource-group') -eq 'test-group') 'Wrong resource group.'
     Assert-True ((Get-Argument $arguments '--server-name') -eq 'test-server') 'Wrong server.'
-    $rule = Get-Argument $arguments '--name'
-    Assert-True ($rule -match '^petclinic-bootstrap-[a-f0-9]{32}$') 'Only the owned temporary rule may be changed.'
-    if ($arguments[3] -eq 'create') {
-        $state.Created = $rule
-        Assert-True ((Get-Argument $arguments '--start-ip-address') -eq '203.0.113.1' -and
-            (Get-Argument $arguments '--end-ip-address') -eq '203.0.113.1') 'Bootstrap must allow only the client IPv4.'
-        if ($state.Failure -eq 'create') { $global:LASTEXITCODE = 1 }
-    } else {
-        Assert-True ($arguments[3] -eq 'delete' -and $rule -ceq $state.Created) 'Cleanup must target the exact created rule.'
-        $state.Deleted = $rule
-        if ($state.Failure -eq 'delete') { $global:LASTEXITCODE = 1 }
+    if ($arguments[3] -eq 'list') {
+        $state.FirewallLists++
+        if ($state.Failure -eq 'firewall') { $global:LASTEXITCODE = 1; return }
+        return ConvertTo-Json -InputObject @(
+            @{ name = 'aca-203-0-113-1'; startIpAddress = '203.0.113.1'; endIpAddress = '203.0.113.1' }
+            @{ name = 'bootstrap-local-ip'; startIpAddress = '0.0.0.0'; endIpAddress = '255.255.255.255' }
+        ) -Compress
     }
+    $rule = Get-Argument $arguments '--name'
+    Assert-True ($arguments[3] -eq 'delete' -and $rule -ceq 'bootstrap-local-ip') `
+        'Cleanup must delete only the Bicep-created temporary rule, not ACA rules.'
+    $state.Deleted = $rule
+    $state.DeleteCalls++
+    if ($state.Failure -eq 'delete') { $global:LASTEXITCODE = 1 }
 }
 function Start-Sleep {
     param([int]$Seconds)
@@ -86,12 +86,10 @@ $state = @{}
 $originalPassword = $env:PGPASSWORD
 try {
     $env:PGPASSWORD = 'original-test-value'
-    foreach ($scenario in @('success', 'token', 'create', 'sql', 'delete', 'ip', 'host',
-        'delayed', 'unreachable', 'client')) {
+    foreach ($scenario in @('success', 'token', 'sql', 'host', 'delayed', 'unreachable', 'client')) {
         $state = @{
             Failure = $scenario
-            Ip = if ($scenario -eq 'ip') { 'invalid' } else { '203.0.113.1' }
-            IpCalls = 0; TokenCalls = 0; DockerCalls = 0; Created = ''; Deleted = ''
+            TokenCalls = 0; DockerCalls = 0
             ProbeCalls = 0; SqlCalls = 0; Sleeps = 0
         }
         $hostName = if ($scenario -eq 'host') { 'attacker.invalid' } else { 'test-server.postgres.database.azure.com' }
@@ -110,20 +108,15 @@ try {
         } else {
             Assert-True ($null -ne $failure) "$scenario should fail."
         }
-        if ($scenario -in @('success', 'create', 'sql', 'delete', 'delayed', 'unreachable', 'client')) {
-            Assert-True ($state.Created -ne '' -and $state.Created -ceq $state.Deleted) "$scenario must attempt firewall cleanup."
-        } else {
-            Assert-True ($state.Created -eq '' -and $state.DockerCalls -eq 0) "$scenario mutated Azure or executed SQL."
-        }
         if ($scenario -eq 'host') {
-            Assert-True ($state.IpCalls -eq 0 -and $state.TokenCalls -eq 0) 'Invalid host must fail before network access.'
+            Assert-True ($state.TokenCalls -eq 0 -and $state.DockerCalls -eq 0) 'Invalid host must fail before network access.'
         }
         if ($scenario -eq 'delayed') {
             Assert-True ($state.ProbeCalls -eq 3 -and $state.Sleeps -eq 2) 'Transient connections must be retried.'
         } elseif ($scenario -eq 'unreachable') {
             Assert-True ($state.ProbeCalls -eq 11 -and $state.Sleeps -eq 10 -and $state.SqlCalls -eq 0) `
                 'Connection retries must be bounded and must not run bootstrap SQL when access fails.'
-        } elseif ($scenario -in @('sql', 'delete')) {
+        } elseif ($scenario -eq 'sql') {
             Assert-True ($state.ProbeCalls -eq 1 -and $state.SqlCalls -eq 1 -and $state.Sleeps -eq 0) `
                 'Bootstrap SQL must not be replayed after a failure.'
         } elseif ($scenario -eq 'client') {
@@ -134,7 +127,55 @@ try {
 } finally {
     $env:PGPASSWORD = $originalPassword
 }
-Write-Host 'Ten identity-bootstrap scenarios passed, including bounded connection retries, failure cleanup, TLS, and token non-disclosure.'
+Write-Host 'Seven identity-bootstrap scenarios passed, including bounded connection retries, TLS, and token non-disclosure.'
+
+$hookEnvironment = @('DATABASE_SERVER_ID', 'DATABASE_HOST', 'APPLICATION_PRINCIPAL_ID',
+    'DATABASE_ADMIN_NAME', 'DATABASE_OUTBOUND_IPS')
+$savedHookEnvironment = @{}
+foreach ($name in $hookEnvironment) {
+    $savedHookEnvironment[$name] = [Environment]::GetEnvironmentVariable($name)
+}
+try {
+    $env:DATABASE_SERVER_ID = $serverId
+    $env:DATABASE_HOST = 'test-server.postgres.database.azure.com'
+    $env:APPLICATION_PRINCIPAL_ID = '00000000-0000-0000-0000-000000000002'
+    $env:DATABASE_ADMIN_NAME = 'admin@example.invalid'
+    $env:DATABASE_OUTBOUND_IPS = '["203.0.113.1"]'
+    foreach ($scenario in @('success', 'firewall', 'token', 'sql', 'delete')) {
+        $state = @{
+            Failure = $scenario; TokenCalls = 0; DockerCalls = 0; ProbeCalls = 0; SqlCalls = 0
+            Sleeps = 0; FirewallLists = 0; Deleted = ''; DeleteCalls = 0
+        }
+        $failure = $null
+        $output = ''
+        try {
+            $output = & (Join-Path $root 'scripts\Configure-Database.ps1') 6>&1 | Out-String
+        } catch { $failure = $_.Exception.Message }
+        Assert-True ($state.Deleted -ceq 'bootstrap-local-ip' -and $state.DeleteCalls -eq 1) `
+            "$scenario must remove temporary full-IPv4 access, including on reconciliation/authentication/SQL failures."
+        Assert-True ($env:PGPASSWORD -ceq $originalPassword) "$scenario must restore the prior password environment."
+        Assert-True ($output -notmatch 'synthetic-sensitive-token' -and
+            $failure -notmatch 'synthetic-sensitive-token') "$scenario disclosed a token."
+        if ($scenario -eq 'success') {
+            Assert-True ($null -eq $failure -and $state.SqlCalls -eq 1) "Postprovision failed: $failure"
+        } else {
+            Assert-True ($null -ne $failure -and $output -notmatch 'identity configured') `
+                "$scenario must fail without reporting bootstrap success."
+        }
+        if ($scenario -eq 'delete') {
+            Assert-True ($failure -match "Remove temporary firewall rule 'bootstrap-local-ip'") `
+                'Cleanup failure must report the rule requiring manual removal.'
+        }
+        if ($scenario -in @('firewall', 'token')) {
+            Assert-True ($state.SqlCalls -eq 0) "$scenario must not run SQL."
+        }
+    }
+} finally {
+    foreach ($name in $hookEnvironment) {
+        [Environment]::SetEnvironmentVariable($name, $savedHookEnvironment[$name])
+    }
+}
+Write-Host 'Five postprovision scenarios passed, including full-IPv4 cleanup on success and all failure stages.'
 
 function docker {
     Assert-True (($args -join ' ') -eq 'info --format {{.ServerVersion}}') 'Unexpected preflight Docker command.'

@@ -52,10 +52,12 @@ The lookup uses the existing ARM credential; no Microsoft Graph access is requir
 After provisioning, the hook reconciles database firewall rules and uses your
 short-lived Azure CLI token to map the app identity to `petclinic_app`. It grants
 connection and schema creation permissions, not database administration.
-A temporary rule allows only your detected public IPv4 address and is removed
-on success or failure. Connection checks retry while the firewall change
-propagates; bootstrap SQL runs once. Docker supplies the PostgreSQL client; no local `psql`
-installation is needed.
+Bicep also creates a temporary `bootstrap-local-ip` rule allowing full IPv4 access:
+HTTPS and database traffic can leave your network through different public IPs.
+The hook removes this rule in `finally`, including when firewall reconciliation,
+authentication, or SQL fails; permanent ACA outbound-IP rules remain.
+Connection checks retry while firewall changes propagate; bootstrap SQL runs once.
+Docker supplies the PostgreSQL client; no local `psql` installation is needed.
 
 Petclinic runs its original schema and seed SQL at startup. Restarting can restore
 deleted sample records. The template changes only database connection and identity
@@ -106,11 +108,10 @@ Open [Swagger UI](http://localhost:9966/petclinic/swagger-ui.html),
 - Do not commit `.azure/` or publish its contents.
 
 If identity bootstrap fails, check Azure CLI tenant/sign-in and TCP 5432
-connectivity. A proxy or VPN can make HTTPS IP discovery differ from database
-egress; the hook does not broaden the firewall to work around that.
-Rerun `azd provision` after correcting the cause.
-If cleanup fails or the hook is forcibly interrupted, remove its
-`petclinic-bootstrap-*` firewall rule from the selected server before retrying.
+connectivity. Rerun `azd provision` after correcting the cause; Bicep recreates
+temporary bootstrap access. If provisioning fails before the hook, cleanup fails,
+or the hook is forcibly interrupted, remove `bootstrap-local-ip` from the selected
+server manually. It must not remain as deployed application access.
 
 ## Clean up
 

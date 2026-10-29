@@ -77,7 +77,8 @@ $cases = @(
         Deletes = @('aca-203-0-113-1', 'aca-203-0-113-3') },
     @{ Name = 'unrelated rules'; Ips = @($b)
         Rules = @((New-Rule $a), (New-Rule $b), (New-Rule $c 'office'),
-            (New-Rule $c 'aca-custom'), (New-Rule $c 'aca-203-0-113-3-backup'))
+            (New-Rule $c 'aca-custom'), (New-Rule $c 'aca-203-0-113-3-backup'),
+            @{ name = 'bootstrap-local-ip'; startIpAddress = '0.0.0.0'; endIpAddress = '255.255.255.255' })
         Deletes = @('aca-203-0-113-1') },
     @{ Name = 'empty IP list'; Ips = @(); Rules = @((New-Rule $a)); Deletes = @()
         Error = 'null, empty'; Calls = 0 },

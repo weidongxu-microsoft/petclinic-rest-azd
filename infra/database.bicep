@@ -56,5 +56,13 @@ resource firewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-
   }
 ]
 
+// HTTPS and PostgreSQL traffic can use different client egress IPs.
+// The postprovision hook removes this temporary rule on success or failure.
+resource bootstrapFirewall 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = {
+  parent: server
+  name: 'bootstrap-local-ip'
+  properties: { startIpAddress: '0.0.0.0', endIpAddress: '255.255.255.255' }
+}
+
 output host string = server.properties.fullyQualifiedDomainName
 output serverId string = server.id
