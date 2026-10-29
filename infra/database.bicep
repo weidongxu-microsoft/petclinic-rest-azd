@@ -29,6 +29,8 @@ resource server 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
 resource administrator 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
   parent: server
   name: administratorObjectId
+  // Entra administrator creation requires an accessible, configured server.
+  dependsOn: [database, requireTls]
   properties: {
     principalName: administratorName
     principalType: 'User'
