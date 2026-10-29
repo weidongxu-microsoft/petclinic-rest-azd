@@ -13,19 +13,34 @@ foreach ($tool in @('az', 'docker')) {
 if ($LASTEXITCODE -ne 0) {
     throw 'Start Docker before provisioning; the database identity setup uses the PostgreSQL client image.'
 }
-$json = & az rest --method get --url 'https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName' `
-    --subscription $env:AZURE_SUBSCRIPTION_ID --only-show-errors --output json
+$json = & az account show --subscription $env:AZURE_SUBSCRIPTION_ID --only-show-errors --output json
 if ($LASTEXITCODE -ne 0) {
-    throw 'Sign in to Azure CLI with a user account in the selected subscription tenant using az login.'
+    throw 'Could not read the selected Azure CLI account.'
 }
-$user = ConvertFrom-Json -InputObject ($json -join "`n")
-$id = [Guid]::Parse($user.id).ToString()
-if ([string]::IsNullOrWhiteSpace($user.userPrincipalName)) {
-    throw 'The signed-in Azure CLI user must have a user principal name.'
+$account = ConvertFrom-Json -InputObject ($json -join "`n")
+if ($account.user.type -ne 'user' -or [string]::IsNullOrWhiteSpace($account.user.name)) {
+    throw 'Database setup requires an Azure CLI user account, not a service principal.'
+}
+$token = & az account get-access-token --subscription $env:AZURE_SUBSCRIPTION_ID --resource-type arm `
+    --query accessToken --output tsv --only-show-errors
+if ($LASTEXITCODE -ne 0 -or !$token) {
+    throw 'Could not acquire an ARM token for the selected subscription; check the Azure CLI sign-in.'
+}
+try {
+    # Match azd's principal lookup: read the oid from the ARM token without requesting Graph access.
+    $payload = (($token -join '').Trim().Split('.')[1]).Replace('-', '+').Replace('_', '/')
+    $payload = $payload.PadRight($payload.Length + (4 - $payload.Length % 4) % 4, '=')
+    $claims = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($payload)) | ConvertFrom-Json
+    $id = [Guid]::Parse($claims.oid)
+    if ($id -eq [Guid]::Empty -or [Guid]::Parse($claims.tid) -ne [Guid]::Parse($account.tenantId)) {
+        throw 'Invalid principal or tenant.'
+    }
+} catch {
+    throw 'Could not identify the signed-in user in the selected subscription tenant from the ARM token.'
 }
 foreach ($value in @(
-    @('DATABASE_ADMIN_OBJECT_ID', $id),
-    @('DATABASE_ADMIN_NAME', $user.userPrincipalName)
+    @('DATABASE_ADMIN_OBJECT_ID', $id.ToString()),
+    @('DATABASE_ADMIN_NAME', $account.user.name)
 )) {
     & azd env set @value
     if ($LASTEXITCODE -ne 0) {

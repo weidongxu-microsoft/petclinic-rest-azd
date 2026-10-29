@@ -110,12 +110,27 @@ function docker {
     $global:LASTEXITCODE = if ($state.Failure -eq 'docker') { 1 } else { 0 }
 }
 function az {
-    Assert-True (($args[0..2] -join ' ') -eq 'rest --method get') 'Preflight must inspect the signed-in user.'
-    Assert-True ((Get-Argument $args '--url') -ceq
-        'https://graph.microsoft.com/v1.0/me?$select=id,userPrincipalName') 'Preflight must request only administrator metadata.'
     Assert-True ((Get-Argument $args '--subscription') -eq $subscription) 'Preflight must use the selected subscription.'
-    $global:LASTEXITCODE = if ($state.Failure -eq 'user') { 1 } else { 0 }
-    return '{"id":"00000000-0000-0000-0000-000000000003","userPrincipalName":"admin@example.invalid"}'
+    $global:LASTEXITCODE = 0
+    if (($args[0..1] -join ' ') -eq 'account show') {
+        if ($state.Failure -eq 'user') { $global:LASTEXITCODE = 1; return }
+        $type = if ($state.Failure -eq 'service-principal') { 'servicePrincipal' } else { 'user' }
+        return @{
+            tenantId = $tenant
+            user = @{ name = 'admin@example.invalid'; type = $type }
+        } | ConvertTo-Json
+    }
+    Assert-True (($args[0..1] -join ' ') -eq 'account get-access-token') 'Preflight must not require Graph.'
+    Assert-True ((Get-Argument $args '--resource-type') -eq 'arm') 'Preflight must reuse the ARM credential.'
+    if ($state.Failure -eq 'arm-token') { $global:LASTEXITCODE = 1; return }
+    if ($state.Failure -eq 'malformed-token') { return 'synthetic-sensitive-token' }
+    $claims = @{
+        oid = if ($state.Failure -eq 'missing-oid') { '' } else { '00000000-0000-0000-0000-000000000003' }
+        tid = if ($state.Failure -eq 'wrong-tenant') { '00000000-0000-0000-0000-000000000099' } else { $tenant }
+    } | ConvertTo-Json -Compress
+    $payload = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($claims)).
+        TrimEnd('=').Replace('+', '-').Replace('/', '_')
+    return "header.$payload.synthetic-sensitive-token"
 }
 function azd {
     Assert-True (($args[0..1] -join ' ') -eq 'env set') 'Only administrator metadata may be persisted.'
@@ -124,12 +139,19 @@ function azd {
     $global:LASTEXITCODE = 0
 }
 $originalSubscription = $env:AZURE_SUBSCRIPTION_ID
+$tenant = '00000000-0000-0000-0000-000000000004'
 try {
-    foreach ($scenario in @('success', 'docker', 'user', 'subscription')) {
+    foreach ($scenario in @('success', 'docker', 'user', 'subscription', 'service-principal',
+        'arm-token', 'malformed-token', 'missing-oid', 'wrong-tenant')) {
         $state = @{ Failure = $scenario; Values = @{} }
         $env:AZURE_SUBSCRIPTION_ID = if ($scenario -eq 'subscription') { '' } else { $subscription }
         $failure = $null
-        try { & (Join-Path $root 'scripts\Prepare-Database.ps1') } catch { $failure = $_.Exception.Message }
+        $output = ''
+        try {
+            $output = & (Join-Path $root 'scripts\Prepare-Database.ps1') 6>&1 | Out-String
+        } catch { $failure = $_.Exception.Message }
+        Assert-True ($output -notmatch 'synthetic-sensitive-token' -and
+            $failure -notmatch 'synthetic-sensitive-token') "$scenario disclosed an ARM token."
         if ($scenario -eq 'success') {
             Assert-True ($null -eq $failure -and $state.Values.Count -eq 2) "Preflight failed: $failure"
             Assert-True ($state.Values.DATABASE_ADMIN_NAME -ceq 'admin@example.invalid') 'Wrong administrator name.'
@@ -142,4 +164,4 @@ try {
 } finally {
     $env:AZURE_SUBSCRIPTION_ID = $originalSubscription
 }
-Write-Host 'Four administrator-preflight scenarios passed; only non-secret identity metadata is persisted.'
+Write-Host 'Nine administrator-preflight scenarios passed, including ARM-only lookup, tenant validation, and token non-disclosure.'

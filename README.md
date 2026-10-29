@@ -47,6 +47,7 @@ such as Contributor plus Role Based Access Control Administrator at subscription
 scope. Preflight hooks select the signed-in Azure CLI user as PostgreSQL Entra
 administrator before `azd up` resolves infrastructure parameters and before
 standalone `azd provision`. Service-principal-only provisioning is not supported.
+The lookup uses the existing ARM credential; no Microsoft Graph access is required.
 
 After provisioning, the hook reconciles database firewall rules and uses your
 short-lived Azure CLI token to map the app identity to `petclinic_app`. It grants
