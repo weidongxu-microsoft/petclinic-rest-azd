@@ -44,11 +44,23 @@ function Initialize-DatabaseIdentity {
             throw 'Could not create the temporary database bootstrap firewall rule.'
         }
         $env:PGPASSWORD = ($token -join '').Trim()
-        $sql | & docker run --rm --interactive --env PGPASSWORD `
-            --env PGSSLMODE=verify-full --env PGSSLROOTCERT=/etc/ssl/certs/ca-certificates.crt `
-            --env PGCONNECT_TIMEOUT=20 postgres:16-alpine psql -X `
-            --host $DatabaseHost --username $AdministratorName --dbname postgres `
-            --set ON_ERROR_STOP=1 --set "application_oid=$PrincipalId"
+        $client = @('run', '--rm', '--interactive', '--env', 'PGPASSWORD',
+            '--env', 'PGSSLMODE=verify-full', '--env', 'PGSSLROOTCERT=/etc/ssl/certs/ca-certificates.crt',
+            '--env', 'PGCONNECT_TIMEOUT=20', 'postgres:16-alpine', 'psql', '-X',
+            '--host', $DatabaseHost, '--username', $AdministratorName, '--dbname', 'postgres',
+            '--set', 'ON_ERROR_STOP=1')
+        # Firewall updates can take five minutes. Retry connections, not the bootstrap SQL.
+        for ($attempt = 0; ; $attempt++) {
+            $probe = & docker @client --command 'SELECT 1' 2>&1
+            if ($LASTEXITCODE -eq 0) { break }
+            if ($LASTEXITCODE -ne 2 -or $attempt -eq 10) {
+                Write-Host ($probe -join "`n")
+                throw 'Database connection failed. Check the Entra administrator and TCP 5432 egress/firewall access.'
+            }
+            Write-Host 'Waiting for database connection access before identity setup...'
+            Start-Sleep -Seconds 30
+        }
+        $sql | & docker @client --set "application_oid=$PrincipalId"
         if ($LASTEXITCODE -ne 0) {
             throw 'Database identity setup failed. Verify the Entra administrator, network access, and PostgreSQL client output.'
         }

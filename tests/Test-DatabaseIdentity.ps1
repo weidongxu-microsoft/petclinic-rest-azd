@@ -44,6 +44,11 @@ function az {
         if ($state.Failure -eq 'delete') { $global:LASTEXITCODE = 1 }
     }
 }
+function Start-Sleep {
+    param([int]$Seconds)
+    Assert-True ($Seconds -eq 30) 'Unexpected connection retry delay.'
+    $state.Sleeps++
+}
 function docker {
     $arguments = @($args)
     $state.DockerCalls++
@@ -56,6 +61,18 @@ function docker {
     }
     Assert-True ((Get-Argument $arguments '--host') -ceq 'test-server.postgres.database.azure.com') 'Wrong database host.'
     Assert-True ((Get-Argument $arguments '--username') -ceq 'admin@example.invalid') 'Wrong administrator.'
+    if ($arguments -contains '--command') {
+        Assert-True ((Get-Argument $arguments '--command') -ceq 'SELECT 1') 'Connection retries must not mutate the database.'
+        $state.ProbeCalls++
+        if ($state.Failure -eq 'unreachable' -or
+            ($state.Failure -eq 'delayed' -and $state.ProbeCalls -le 2)) {
+            $global:LASTEXITCODE = 2
+        } elseif ($state.Failure -eq 'client') {
+            $global:LASTEXITCODE = 125
+        }
+        return
+    }
+    $state.SqlCalls++
     $sql = $input | Out-String
     Assert-True ($sql.Contains('pgaadauth_create_principal_with_oid') -and
         !$sql.Contains('CREATE TABLE') -and !$sql.Contains('INSERT INTO')) 'Bootstrap must only map identity and grant permissions.'
@@ -69,11 +86,13 @@ $state = @{}
 $originalPassword = $env:PGPASSWORD
 try {
     $env:PGPASSWORD = 'original-test-value'
-    foreach ($scenario in @('success', 'token', 'create', 'sql', 'delete', 'ip', 'host')) {
+    foreach ($scenario in @('success', 'token', 'create', 'sql', 'delete', 'ip', 'host',
+        'delayed', 'unreachable', 'client')) {
         $state = @{
             Failure = $scenario
             Ip = if ($scenario -eq 'ip') { 'invalid' } else { '203.0.113.1' }
             IpCalls = 0; TokenCalls = 0; DockerCalls = 0; Created = ''; Deleted = ''
+            ProbeCalls = 0; SqlCalls = 0; Sleeps = 0
         }
         $hostName = if ($scenario -eq 'host') { 'attacker.invalid' } else { 'test-server.postgres.database.azure.com' }
         $failure = $null
@@ -86,12 +105,12 @@ try {
         Assert-True ($env:PGPASSWORD -ceq 'original-test-value') "$scenario failed to restore the prior environment."
         Assert-True ($output -notmatch 'synthetic-sensitive-token' -and
             $failure -notmatch 'synthetic-sensitive-token') "$scenario disclosed a token."
-        if ($scenario -eq 'success') {
-            Assert-True ($null -eq $failure -and $state.DockerCalls -eq 1) "Successful setup failed: $failure"
+        if ($scenario -in @('success', 'delayed')) {
+            Assert-True ($null -eq $failure -and $state.SqlCalls -eq 1) "Successful setup failed: $failure"
         } else {
             Assert-True ($null -ne $failure) "$scenario should fail."
         }
-        if ($scenario -in @('success', 'create', 'sql', 'delete')) {
+        if ($scenario -in @('success', 'create', 'sql', 'delete', 'delayed', 'unreachable', 'client')) {
             Assert-True ($state.Created -ne '' -and $state.Created -ceq $state.Deleted) "$scenario must attempt firewall cleanup."
         } else {
             Assert-True ($state.Created -eq '' -and $state.DockerCalls -eq 0) "$scenario mutated Azure or executed SQL."
@@ -99,11 +118,23 @@ try {
         if ($scenario -eq 'host') {
             Assert-True ($state.IpCalls -eq 0 -and $state.TokenCalls -eq 0) 'Invalid host must fail before network access.'
         }
+        if ($scenario -eq 'delayed') {
+            Assert-True ($state.ProbeCalls -eq 3 -and $state.Sleeps -eq 2) 'Transient connections must be retried.'
+        } elseif ($scenario -eq 'unreachable') {
+            Assert-True ($state.ProbeCalls -eq 11 -and $state.Sleeps -eq 10 -and $state.SqlCalls -eq 0) `
+                'Connection retries must be bounded and must not run bootstrap SQL when access fails.'
+        } elseif ($scenario -in @('sql', 'delete')) {
+            Assert-True ($state.ProbeCalls -eq 1 -and $state.SqlCalls -eq 1 -and $state.Sleeps -eq 0) `
+                'Bootstrap SQL must not be replayed after a failure.'
+        } elseif ($scenario -eq 'client') {
+            Assert-True ($state.ProbeCalls -eq 1 -and $state.SqlCalls -eq 0 -and $state.Sleeps -eq 0) `
+                'Docker failures must fail immediately rather than retrying database access.'
+        }
     }
 } finally {
     $env:PGPASSWORD = $originalPassword
 }
-Write-Host 'Seven identity-bootstrap scenarios passed, including failure cleanup, verified TLS, and token non-disclosure.'
+Write-Host 'Ten identity-bootstrap scenarios passed, including bounded connection retries, failure cleanup, TLS, and token non-disclosure.'
 
 function docker {
     Assert-True (($args -join ' ') -eq 'info --format {{.ServerVersion}}') 'Unexpected preflight Docker command.'

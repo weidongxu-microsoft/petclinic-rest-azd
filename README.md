@@ -53,7 +53,8 @@ After provisioning, the hook reconciles database firewall rules and uses your
 short-lived Azure CLI token to map the app identity to `petclinic_app`. It grants
 connection and schema creation permissions, not database administration.
 A temporary rule allows only your detected public IPv4 address and is removed
-on success or failure. Docker supplies the PostgreSQL client; no local `psql`
+on success or failure. Connection checks retry while the firewall change
+propagates; bootstrap SQL runs once. Docker supplies the PostgreSQL client; no local `psql`
 installation is needed.
 
 Petclinic runs its original schema and seed SQL at startup. Restarting can restore
