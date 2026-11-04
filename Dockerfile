@@ -8,7 +8,7 @@ COPY src src
 RUN chmod +x mvnw && MAVEN_CONFIG= ./mvnw --batch-mode --no-transfer-progress -DskipTests package \
     && cp target/spring-petclinic-rest-*.jar /application.jar
 
-FROM eclipse-temurin:17-jre@sha256:4faa9eaf440514dd4f7ef71fecb92526e13679aea039bed5d2fc98e885c60dee
+FROM eclipse-temurin:25-jre@sha256:ecdc0adb37bde1a281c4d245a3cd535004b1fc8322d560f5b09463b248c81df0
 WORKDIR /app
 COPY --from=build --chown=10001:10001 /application.jar application.jar
 USER 10001:10001
